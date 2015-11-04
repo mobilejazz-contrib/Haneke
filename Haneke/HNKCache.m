@@ -140,12 +140,14 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
                     return;
                 }
                 
-                UIImage *image = [self imageFromOriginal:originalImage key:key format:format];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self setMemoryImage:image forKey:key format:format];
-                    if (successBlock) successBlock(image);
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    UIImage *image = [self imageFromOriginal:originalImage key:key format:format];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self setMemoryImage:image forKey:key format:format];
+                        if (successBlock) successBlock(image);
+                    });
+                    [self setDiskImage:image forKey:key format:format];
                 });
-                [self setDiskImage:image forKey:key format:format];
             }];
         });
     }];
