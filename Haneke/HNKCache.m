@@ -37,7 +37,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 
 - (CGSize)hnk_aspectFillSizeForSize:(CGSize)size;
 - (CGSize)hnk_aspectFitSizeForSize:(CGSize)size;
-- (NSData*)hnk_dataWithCompressionQuality:(CGFloat)compressionQuality;
+- (NSData*)hnk_dataWithCompressionQuality:(CGFloat)compressionQuality storageType:(HNKStorageType)storageType;
 - (UIImage *)hnk_decompressedImage;
 - (UIImage *)hnk_imageByScalingToSize:(CGSize)newSize;
 - (BOOL)hnk_hasAlpha;
@@ -356,7 +356,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
     {
         if (format.diskCapacity == 0) return;
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSData *data = [image hnk_dataWithCompressionQuality:format.compressionQuality];
+            NSData *data = [image hnk_dataWithCompressionQuality:format.compressionQuality storageType:format.storageType];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [format.diskCache setData:data forKey:key];
             });
@@ -371,7 +371,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 - (void)updateAccessDateOfImage:(UIImage*)image key:(NSString*)key format:(HNKCacheFormat*)format
 {
     [format.diskCache updateAccessDateForKey:key data:^NSData *{
-        NSData *data = [image hnk_dataWithCompressionQuality:format.compressionQuality];
+        NSData *data = [image hnk_dataWithCompressionQuality:format.compressionQuality storageType:format.storageType];
         return data;
     }];
 }
@@ -473,10 +473,23 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
     return CGSizeMake(ceil(resultSize.width), ceil(resultSize.height));
 }
 
-- (NSData*)hnk_dataWithCompressionQuality:(CGFloat)compressionQuality
+- (NSData*)hnk_dataWithCompressionQuality:(CGFloat)compressionQuality storageType:(HNKStorageType)storageType
 {
-    const BOOL hasAlpha = [self hnk_hasAlpha];
-    NSData *data = hasAlpha ? UIImagePNGRepresentation(self) : UIImageJPEGRepresentation(self, compressionQuality);
+    NSData *data = nil;
+    if (storageType == HNKStorageTypePNG)
+    {
+        data = UIImagePNGRepresentation(self);
+    }
+    else if (storageType == HNKStorageTypeJPG)
+    {
+        data = UIImageJPEGRepresentation(self, compressionQuality);
+    }
+    else //if (storageType == HNKStorageTypeAutomatic)
+    {
+        const BOOL hasAlpha = [self hnk_hasAlpha];
+        data = hasAlpha ? UIImagePNGRepresentation(self) : UIImageJPEGRepresentation(self, compressionQuality);
+    }
+    
     return data;
 }
 

@@ -170,6 +170,13 @@ typedef NS_ENUM(NSInteger, HNKPreloadPolicy)
     HNKPreloadPolicyAll
 };
 
+typedef NS_ENUM(NSInteger, HNKStorageType)
+{
+    HNKStorageTypeAutomatic,
+    HNKStorageTypePNG,
+    HNKStorageTypeJPG,
+};
+
 /**
  Image cache format. Defines the transformation applied to images as well as cache policies such as disk capacity.
  */
@@ -202,6 +209,11 @@ typedef NS_ENUM(NSInteger, HNKPreloadPolicy)
  Format scale mode. Determines if images will fit or fill the format size or not. HNKScaleModeFill by default.
  */
 @property (nonatomic, assign) HNKScaleMode scaleMode;
+
+/**
+ * Storage type. Default value is `HNKStorageTypeAutomatic` (which will choose auotmatically PNG if alpha channel is detected, otherwise JPG).
+ **/
+@property (nonatomic, assign) HNKStorageType storageType;
 
 /**
  The disk cache capacity for the format. If 0 Haneke will only use memory cache. 0 by default.
