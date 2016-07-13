@@ -64,6 +64,11 @@
  */
 @property (nonatomic, readonly) NSDictionary *formats;
 
+/**
+ * Limit of images cached in live memory per cache format. 0 means no limit. Default is 0.
+ **/
+@property (nonatomic, assign) NSUInteger memoryCacheCountLimit;
+
 #pragma mark Getting images
 ///---------------------------------------------
 /// @name Getting images

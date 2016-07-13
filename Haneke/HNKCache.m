@@ -302,6 +302,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
     if (!cache)
     {
         cache = [[NSCache alloc] init];
+        cache.countLimit = _memoryCacheCountLimit;
         _memoryCaches[formatName] = cache;
     }
     if (image)
