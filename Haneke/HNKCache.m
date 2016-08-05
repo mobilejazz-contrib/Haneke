@@ -24,14 +24,14 @@
 NSString *const HNKErrorDomain = @"com.hpique.haneke";
 
 #define hnk_dispatch_sync_main_queue_if_needed(block)\
-    if ([NSThread isMainThread])\
-    {\
-        block();\
-    }\
-    else\
-    {\
-        dispatch_sync(dispatch_get_main_queue(), block);\
-    }
+if ([NSThread isMainThread])\
+{\
+block();\
+}\
+else\
+{\
+dispatch_sync(dispatch_get_main_queue(), block);\
+}
 
 @interface UIImage (Haneke)
 
@@ -41,6 +41,171 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 - (UIImage *)hnk_decompressedImage;
 - (UIImage *)hnk_imageByScalingToSize:(CGSize)newSize;
 - (BOOL)hnk_hasAlpha;
+
+@end
+
+
+@interface HNKMemoryCacheItem : NSObject
+
++ (instancetype)itemWithKey:(NSString*)key image:(UIImage*)image;
+- (id)initWithKey:(NSString*)key image:(UIImage*)image;
+
+@property (nonatomic, strong, readonly) NSString *key;
+@property (nonatomic, strong, readonly) UIImage *image;
+
+@property (nonatomic, strong) NSString *formatName;
+@property (nonatomic, strong) NSDate *date;
+
+@end
+
+@implementation HNKMemoryCacheItem
+
++ (instancetype)itemWithKey:(NSString*)key image:(UIImage*)image
+{
+    HNKMemoryCacheItem *item = [[self alloc] initWithKey:key image:image];
+    return item;
+}
+
+- (id)initWithKey:(NSString *)key image:(UIImage *)image
+{
+    self = [super init];
+    if (self)
+    {
+        _key = key;
+        _image = image;
+        _formatName = nil;
+        _date = [NSDate date];
+    }
+    return self;
+}
+
+- (NSUInteger)hash
+{
+    return [_key hash];
+}
+
+- (BOOL)isEqual:(id)object
+{
+    return [_key isEqual:object];
+}
+
+@end
+
+@interface HNKMemoryCache : NSObject
+
+@property (nonatomic, assign) NSUInteger capacity;
+
+- (void)setImage:(UIImage*)image forKey:(NSString*)key formatName:(NSString*)formatName;
+- (UIImage*)imageForKey:(NSString*)key;
+- (void)removeImageForKey:(NSString*)key;
+- (void)removeAllImagesWithFormatName:(NSString*)formatName;
+- (void)removeAllImages;
+
+@end
+
+
+@implementation HNKMemoryCache
+{
+    NSMutableOrderedSet <HNKMemoryCacheItem*> *_items;
+}
+
+- (id)init
+{
+    return [self initWithCapacity:0];
+}
+
+- (id)initWithCapacity:(NSUInteger)capacity;
+{
+    self = [super init];
+    if (self)
+    {
+        _capacity = capacity;
+        _items = [NSMutableOrderedSet orderedSetWithCapacity:capacity>0?capacity:100];
+    }
+    return self;
+}
+
+- (void)setImage:(UIImage*)image forKey:(NSString*)key formatName:(NSString*)formatName
+{
+    if (_capacity > 0)
+    {
+        @synchronized (self)
+        {
+            while (_items.count > _capacity-1)
+            {
+                // Deleting oldest item
+                [_items removeObjectAtIndex:0];
+            }
+        }
+    }
+    
+    HNKMemoryCacheItem *item = [HNKMemoryCacheItem itemWithKey:key image:image];
+    item.formatName = formatName;
+    
+    @synchronized (self)
+    {
+        [_items removeObject:item];
+        [_items addObject:item];
+    }
+}
+
+- (UIImage*)imageForKey:(NSString*)key
+{
+    __block UIImage *image = nil;
+    __block NSUInteger index = NSUIntegerMax;
+    
+    [_items enumerateObjectsWithOptions:NSEnumerationReverse usingBlock:^(HNKMemoryCacheItem * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        if ([obj.key isEqualToString:key])
+        {
+            image = obj.image;
+            index = idx;
+            *stop = YES;
+        }
+    }];
+    
+    if (image)
+    {
+        @synchronized (self)
+        {
+            // Moving item at end (most recent)
+            [_items moveObjectsAtIndexes:[NSIndexSet indexSetWithIndex:index] toIndex:_items.count-1];
+        }
+    }
+    
+    return image;
+}
+
+- (void)removeImageForKey:(NSString*)key
+{
+    HNKMemoryCacheItem *item = [HNKMemoryCacheItem itemWithKey:key image:nil];
+    @synchronized (self)
+    {
+        [_items removeObject:item];
+    }
+}
+
+- (void)removeAllImagesWithFormatName:(NSString*)formatName
+{
+    @synchronized (self)
+    {
+        for (NSInteger i=_items.count; i>=0; --i)
+        {
+            HNKMemoryCacheItem *item = _items[i];
+            if ([item.formatName isEqualToString:formatName])
+            {
+                [_items removeObjectAtIndex:i];
+            }
+        }
+    }
+}
+
+- (void)removeAllImages
+{
+    @synchronized (self)
+    {
+        [_items removeAllObjects];
+    }
+}
 
 @end
 
@@ -60,7 +225,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 @end
 
 @implementation HNKCache {
-    NSMutableDictionary *_memoryCaches;
+    HNKMemoryCache *_memoryCache;
     NSMutableDictionary *_formats;
     NSString *_rootDirectory;
 }
@@ -72,7 +237,8 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
     self = [super init];
     if (self)
     {
-        _memoryCaches = [NSMutableDictionary dictionary];
+        _memoryCacheCountLimit = 0;
+        _memoryCache = [[HNKMemoryCache alloc] initWithCapacity:_memoryCacheCountLimit];
         _formats = [NSMutableDictionary dictionary];
         
         NSString *cachesDirectory = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
@@ -118,6 +284,12 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 - (NSDictionary*)formats
 {
     return _formats.copy;
+}
+
+- (void)setMemoryCacheCountLimit:(NSUInteger)memoryCacheCountLimit
+{
+    _memoryCacheCountLimit = memoryCacheCountLimit;
+    _memoryCache.capacity = memoryCacheCountLimit;
 }
 
 #pragma mark Getting images
@@ -225,8 +397,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 {
     HNKCacheFormat *format = _formats[formatName];
     if (!format) return;
-    NSCache *cache = [_memoryCaches objectForKey:formatName];
-    [cache removeAllObjects];
+    [_memoryCache removeAllImagesWithFormatName:formatName];
     [format.diskCache removeAllData];
 }
 
@@ -240,9 +411,8 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 
 - (void)removeImagesForKey:(NSString *)key
 {
-    [_memoryCaches enumerateKeysAndObjectsUsingBlock:^(id _, NSCache *cache, BOOL *stop) {
-        [cache removeObjectForKey:key];
-    }];
+    [_memoryCache removeImageForKey:key];
+    
     NSDictionary *formats = _formats.copy;
     [formats enumerateKeysAndObjectsUsingBlock:^(id _, HNKCacheFormat *format, BOOL *stop) {
         [self setDiskImage:nil forKey:key format:format];
@@ -291,27 +461,19 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 
 - (UIImage*)memoryImageForKey:(NSString*)key format:(HNKCacheFormat*)format
 {
-    NSCache *cache = _memoryCaches[format.name];
-    return [cache objectForKey:key];
+    UIImage *image = [_memoryCache imageForKey:key];
+    return image;
 }
 
 - (void)setMemoryImage:(UIImage*)image forKey:(NSString*)key format:(HNKCacheFormat*)format
 {
-    NSString *formatName = format.name;
-    NSCache *cache = _memoryCaches[formatName];
-    if (!cache)
-    {
-        cache = [[NSCache alloc] init];
-        cache.countLimit = _memoryCacheCountLimit;
-        _memoryCaches[formatName] = cache;
-    }
     if (image)
     {
-        [cache setObject:image forKey:key];
+        [_memoryCache setImage:image forKey:key formatName:format.name];
     }
     else
     {
-        [cache removeObjectForKey:key];
+        [_memoryCache removeImageForKey:key];
     }
 }
 
@@ -381,9 +543,7 @@ NSString *const HNKErrorDomain = @"com.hpique.haneke";
 
 - (void)didReceiveMemoryWarning:(NSNotification*)notification
 {
-    [_memoryCaches enumerateKeysAndObjectsUsingBlock:^(id key, NSCache *cache, BOOL *stop) {
-        [cache removeAllObjects];
-    }];
+    [_memoryCache removeAllImages];
 }
 
 @end
