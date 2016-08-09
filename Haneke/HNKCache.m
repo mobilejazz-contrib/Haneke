@@ -151,28 +151,29 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 
 - (UIImage*)imageForKey:(NSString*)key
 {
-    __block UIImage *image = nil;
+    __block HNKMemoryCacheItem *item = nil;
     __block NSUInteger index = NSUIntegerMax;
     
     [_items enumerateObjectsWithOptions:NSEnumerationReverse usingBlock:^(HNKMemoryCacheItem * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         if ([obj.key isEqualToString:key])
         {
-            image = obj.image;
+            item = obj;
             index = idx;
             *stop = YES;
         }
     }];
     
-    if (image)
+    if (item)
     {
         @synchronized (self)
         {
             // Moving item at end (most recent)
-            [_items moveObjectsAtIndexes:[NSIndexSet indexSetWithIndex:index] toIndex:_items.count-1];
+            [_items removeObjectAtIndex:index];
+            [_items addObject:item];
         }
     }
     
-    return image;
+    return item.image;
 }
 
 - (void)removeImageForKey:(NSString*)key
