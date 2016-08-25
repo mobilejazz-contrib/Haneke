@@ -42,7 +42,7 @@
 /**
  Initializes a cache with the given name.
  @param name Name of the cache. Used as the name for the subdirectory of the disk cache.
-*/
+ */
 - (id)initWithName:(NSString*)name;
 
 /**
@@ -89,7 +89,7 @@
  @param key Image cache key.
  @param formatName Name of the format in which the image is desired. The format must have been previously registered with the cache.
  @param successBlock Block to be called with the requested image. Always called from the main queue. Will be called synchronously if the image exists in the memory cache, or asynchronously if the image has to be retreived from the disk cache.
- @param failureBlock Block to be called if the image is not in the cache or if there is another error. Called asynchronously from the main queue. 
+ @param failureBlock Block to be called if the image is not in the cache or if there is another error. Called asynchronously from the main queue.
  @return YES if image exists in the memory cache (and thus, the success block was called synchronously), NO otherwise.
  */
 - (BOOL)fetchImageForKey:(NSString*)key formatName:(NSString *)formatName success:(void (^)(UIImage *image))successBlock failure:(void (^)(NSError *error))failureBlock;
@@ -135,7 +135,7 @@
  */
 @protocol HNKFetcher <NSObject>
 
-/** 
+/**
  Returns the key of the original image returned by the fetcher.
  @discussion If two different fetchers provide the same image, they should return the same key for better performance.
  */
@@ -231,6 +231,11 @@ typedef NS_ENUM(NSInteger, HNKStorageType)
 @property (nonatomic, readonly) unsigned long long diskSize;
 
 /**
+ * Limit of images cached in live memory on the current cache format. 0 means no limit. A negative value means use the shared memory cache accross all formats. Default is -1.
+ **/
+@property (nonatomic, assign) NSInteger memoryCacheCountLimit;
+
+/**
  Preload policy. If set, Haneke will add some or all images cached on disk to the memory cache. HNKPreloadPolicyNone by default.
  */
 @property (nonatomic, assign) HNKPreloadPolicy preloadPolicy;
@@ -278,6 +283,6 @@ enum
     HNKErrorImageNotFound = -100,
     
     HNKErrorFetcherMustReturnImage = -200,
-
+    
     HNKErrorDiskCacheCannotReadImageFromData = -300
 };

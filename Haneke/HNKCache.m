@@ -216,6 +216,7 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 @property (nonatomic, readonly) NSString *directory;
 @property (nonatomic, assign) NSUInteger requestCount;
 @property (nonatomic, strong) HNKDiskCache *diskCache;
+@property (nonatomic, strong) HNKMemoryCache *memoryCache;
 
 @end
 
@@ -226,8 +227,8 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 @end
 
 @implementation HNKCache {
-    HNKMemoryCache *_memoryCache;
-    NSMutableDictionary *_formats;
+    HNKMemoryCache *_sharedMemoryCache;
+    NSMutableDictionary <NSString*, HNKCacheFormat*> *_formats;
     NSString *_rootDirectory;
 }
 
@@ -239,7 +240,8 @@ dispatch_sync(dispatch_get_main_queue(), block);\
     if (self)
     {
         _memoryCacheCountLimit = 0;
-        _memoryCache = [[HNKMemoryCache alloc] initWithCapacity:_memoryCacheCountLimit];
+        _sharedMemoryCache = [[HNKMemoryCache alloc] initWithCapacity:_memoryCacheCountLimit];
+        
         _formats = [NSMutableDictionary dictionary];
         
         NSString *cachesDirectory = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
@@ -290,7 +292,7 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 - (void)setMemoryCacheCountLimit:(NSUInteger)memoryCacheCountLimit
 {
     _memoryCacheCountLimit = memoryCacheCountLimit;
-    _memoryCache.capacity = memoryCacheCountLimit;
+    _sharedMemoryCache.capacity = memoryCacheCountLimit;
 }
 
 #pragma mark Getting images
@@ -398,7 +400,10 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 {
     HNKCacheFormat *format = _formats[formatName];
     if (!format) return;
-    [_memoryCache removeAllImagesWithFormatName:formatName];
+    
+    [_sharedMemoryCache removeAllImagesWithFormatName:formatName];
+    [_formats[formatName].memoryCache removeAllImages];
+    
     [format.diskCache removeAllData];
 }
 
@@ -412,10 +417,11 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 
 - (void)removeImagesForKey:(NSString *)key
 {
-    [_memoryCache removeImageForKey:key];
+    [_sharedMemoryCache removeImageForKey:key];
     
     NSDictionary *formats = _formats.copy;
     [formats enumerateKeysAndObjectsUsingBlock:^(id _, HNKCacheFormat *format, BOOL *stop) {
+        [_formats[format.name].memoryCache removeImageForKey:key];
         [self setDiskImage:nil forKey:key format:format];
     }];
 }
@@ -462,7 +468,12 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 
 - (UIImage*)memoryImageForKey:(NSString*)key format:(HNKCacheFormat*)format
 {
-    UIImage *image = [_memoryCache imageForKey:key];
+    HNKMemoryCache *memoryCache = format.memoryCache;
+    UIImage *image = [memoryCache imageForKey:key];
+    
+    if (!image)
+        image = [_sharedMemoryCache imageForKey:key];
+    
     return image;
 }
 
@@ -470,11 +481,19 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 {
     if (image)
     {
-        [_memoryCache setImage:image forKey:key formatName:format.name];
+        if (format.memoryCache)
+        {
+            [format.memoryCache setImage:image forKey:key formatName:format.name];
+        }
+        else
+        {
+            [_sharedMemoryCache setImage:image forKey:key formatName:format.name];
+        }
     }
     else
     {
-        [_memoryCache removeImageForKey:key];
+        [format.memoryCache removeImageForKey:key];
+        [_sharedMemoryCache removeImageForKey:key];
     }
 }
 
@@ -544,7 +563,11 @@ dispatch_sync(dispatch_get_main_queue(), block);\
 
 - (void)didReceiveMemoryWarning:(NSNotification*)notification
 {
-    [_memoryCache removeAllImages];
+    [_sharedMemoryCache removeAllImages];
+    
+    [_formats enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, HNKCacheFormat * _Nonnull format, BOOL * _Nonnull stop) {
+        [format.memoryCache removeAllImages];
+    }];
 }
 
 @end
@@ -558,8 +581,30 @@ dispatch_sync(dispatch_get_main_queue(), block);\
     {
         _name = name;
         _compressionQuality = 1;
+        _memoryCacheCountLimit = -1;
     }
     return self;
+}
+
+- (void)setMemoryCacheCountLimit:(NSInteger)memoryCacheCountLimit
+{
+    _memoryCacheCountLimit = memoryCacheCountLimit;
+    if (_memoryCacheCountLimit >= 0)
+    {
+        if (!_memoryCache)
+        {
+            _memoryCache = [[HNKMemoryCache alloc] initWithCapacity:memoryCacheCountLimit];
+        }
+        else
+        {
+            _memoryCache.capacity = memoryCacheCountLimit;
+        }
+    }
+    else
+    {
+        [_memoryCache removeAllImages];
+        _memoryCache = nil;
+    }
 }
 
 - (UIImage*)resizedImageFromImage:(UIImage*)originalImage
